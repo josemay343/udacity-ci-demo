@@ -1,4 +1,6 @@
 ---
-- name: Configure EC2 instance
+- name: Exercise for setting up a web server in an EC2
   hosts: all
   user: ubuntu
+  roles:
+  - setup
