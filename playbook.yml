@@ -1,0 +1,4 @@
+---
+- name: Configure EC2 instance
+  hosts: all
+  user: ubuntu
