@@ -27,7 +27,7 @@ jobs:
 workflows:
   my_workflow:
     jobs:
-      - build
+      - create_infrastructure
 
 # version: 2.1
 
