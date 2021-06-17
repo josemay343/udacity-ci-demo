@@ -10,24 +10,81 @@ commands:
             aws cloudformation delete-stack --stack-name prod-${CIRCLE_WORKFLOW_ID}
 
 jobs:
-  create_infrastructure:
+  create_and_deploy_front_end:
     docker:
       - image: amazon/aws-cli
     steps:
       - checkout
       - run:
-          name: Create Stack
+          name: Create front_end
           command: |
             aws cloudformation deploy \
-              --template-file template.yml \
-              --stack-name prod-${CIRCLE_WORKFLOW_ID}
-      - run: return 1
-      - destroy_environment
+            --template-file bucket.yml \
+            --stack-name "${CIRCLE_WORKFLOW_ID:0:7}" \
+            --parameter-overrides NAME="${CIRCLE_WORKFLOW_ID:0:7}"
+      - run: aws s3 sync . s3://"${CIRCLE_WORKFLOW_ID:0:7}" --delete
+
+  get_last_deployment_id:
+    docker:
+      - image: amazon/aws-cli
+    steps:
+      - checkout
+      - run: yum install -y tar
+      - run: yum install -y gzip
+      - run:
+          name: get last deployment id
+          command: |
+            aws cloudformation \
+            list-exports --query "Exports[?Name==\`PipelineID\`].Value" \
+            --no-paginate --output text >> ~/last_deployment_id.txt
+            cat ~/last_deployment_id.txt
+      - persist_to_workspace:
+          root: ~/
+          paths:
+            - last_deployment_id.txt
+  
+  promote_to_production:
+    docker:
+      - image: amazon/aws-cli
+    steps:
+      - checkout
+      - run:
+          name: cloudfront execution
+          command: |
+            aws cloudformation deploy \
+            --template-file cloudfront.yml \
+            --stack-name production-distro \
+            --parameter-overrides PipelineID="${CIRCLE_WORKFLOW_ID:0:7}"
+
+  clean_up_old_front_end:
+    docker:
+      - image: amazon/aws-cli
+    steps:
+      - checkout
+      - run: yum install -y tar
+      - run: yum install -y gzip
+      - attach_workspace:
+          at: ~/
+      - run: cat ~/last_deployment_id.txt
+      - run:
+          command: |
+              aws s3 rm "s3://$(cat ~/last_deployment_id.txt)" --recursive
+              aws cloudformation delete-stack --stack-name "bucket-$(cat ~/last_deployment_id.txt)"
 
 workflows:
   my_workflow:
     jobs:
-      - create_infrastructure
+      - create_and_deploy_front_end
+      - get_last_deployment_id:
+          requires:
+            - create_and_deploy_front_end
+      - promote_to_production:
+          requires:
+            - create_and_deploy_front_end
+      - clean_up_old_front_end:
+          requires:
+            - promote_to_production
+            - get_last_deployment_id
 
 # version: 2.1
 
